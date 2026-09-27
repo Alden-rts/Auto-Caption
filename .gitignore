@@ -1,0 +1,19 @@
+# API Key
+.env
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Temporary Auto Caption files
+temp_audio.mp3
+temp_subtitles.ass
+
+# Uploaded / rendered videos
+static/uploads/
+
+# Windows
+Thumbs.db
+Desktop.ini
