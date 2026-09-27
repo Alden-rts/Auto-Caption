@@ -1,0 +1,455 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Auto Caption AI - Pro Editor</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet">
+  <script>
+    tailwind.config = {
+      theme: { extend: { fontFamily: { geist: ['Geist', 'sans-serif'], mono: ['JetBrains Mono', 'monospace'] } } }
+    }
+  </script>
+  <style>
+    .glass { background: rgba(255, 255, 255, 0.05); backdrop-filter: blur(20px); }
+    .gradient-border { position: relative; background: linear-gradient(135deg, rgba(79, 70, 229, 0.1), rgba(59, 130, 246, 0.1)); }
+    .gradient-border::before {
+      content: ''; position: absolute; inset: 0; padding: 2px;
+      background: linear-gradient(135deg, #4f46e5, #3b82f6, #8b5cf6);
+      border-radius: inherit; mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+      mask-composite: xor; -webkit-mask-composite: xor;
+    }
+    .inner-glow { box-shadow: inset 0 0 20px rgba(79, 70, 229, 0.3); }
+    .card-border {
+      background: rgba(15, 15, 20, 0.85); border: 1px solid rgba(79, 70, 229, 0.3);
+      backdrop-filter: blur(30px); box-shadow: 0 0 50px rgba(139, 92, 246, 0.2);
+    }
+    input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; height: 16px; width: 16px; border-radius: 50%; background: #8b5cf6; cursor: pointer; }
+    input[type=range]::-webkit-slider-runnable-track { width: 100%; height: 4px; background: rgba(255,255,255,0.2); }
+    
+    textarea::-webkit-scrollbar, .custom-scroll::-webkit-scrollbar { width: 6px; }
+    textarea::-webkit-scrollbar-track, .custom-scroll::-webkit-scrollbar-track { background: rgba(0,0,0,0.2); }
+    textarea::-webkit-scrollbar-thumb, .custom-scroll::-webkit-scrollbar-thumb { background: rgba(99, 102, 241, 0.5); border-radius: 4px; }
+    
+    .preset-card.active { border-color: #3b82f6 !important; box-shadow: 0 0 0 2px #3b82f6; transform: scale(1.03); }
+    .tab-btn.active { background: white; color: black; font-weight: 600; }
+    .tab-btn { background: rgba(255,255,255,0.1); color: #ccc; }
+
+    /* CSS Untuk Realtime Preview Overlay di atas Video */
+    #subtitleOverlay {
+      position: absolute; bottom: 15%; left: 10%; right: 10%;
+      text-align: center; pointer-events: none; z-index: 10;
+      display: flex; flex-direction: row; flex-wrap: wrap; justify-content: center; align-items: center; gap: 6px;
+      transition: all 0.1s;
+    }
+    .word-span { transition: all 0.1s ease-out; display: inline-block; line-height: 1.2; }
+    .word-span.pop-active { transform: scale(1.2); z-index: 11; text-shadow: 0 0 10px currentColor; }
+  </style>
+</head>
+<body class="bg-black m-0 p-0 overflow-hidden h-screen w-screen font-geist text-white">
+  
+  <canvas id="visualizer" class="fixed inset-0 w-full h-full z-0"></canvas>
+ 
+  <div class="fixed inset-0 flex items-center justify-center p-6 z-10">
+    <div class="w-full relative max-w-6xl h-[92vh]">
+      <div class="relative card-border overflow-hidden rounded-2xl flex flex-col md:flex-row h-full shadow-2xl">
+        
+        <div class="w-full md:w-5/12 p-5 flex flex-col justify-center border-b md:border-b-0 md:border-r border-white/10 relative">
+          <div class="flex justify-between items-center mb-3 gap-2">
+            <span class="inline-block px-3 py-1 glass text-indigo-300 rounded-full text-xs font-medium border border-indigo-400/30">
+              Preview Video
+            </span>
+            <div class="flex items-center gap-2">
+              <button id="btnDeleteVideo" onclick="deleteVideo()" class="hidden bg-red-600/80 hover:bg-red-500 text-white text-xs font-semibold py-1.5 px-3 rounded-lg transition border border-red-400/30 flex items-center gap-1 shadow-sm">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg> Hapus
+              </button>
+              <label class="cursor-pointer bg-white/10 hover:bg-white/20 text-white text-xs font-semibold py-1.5 px-3 rounded-lg transition border border-white/20 flex items-center gap-1 shadow-sm backdrop-blur-md">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path></svg> Upload
+                <input type="file" id="videoInput" accept="video/mp4,video/x-m4v,video/quicktime" class="hidden">
+              </label>
+            </div>
+          </div>
+          
+          <div class="w-full flex-grow rounded-xl gradient-border inner-glow overflow-hidden relative bg-black/60 flex items-center justify-center shadow-lg">
+            
+            <video id="videoPlayer" class="absolute w-full h-full object-contain hidden" controls playsinline></video>
+            
+            <div id="subtitleOverlay" class="uppercase font-bold tracking-wide"></div>
+
+            <div id="uploadPlaceholder" class="absolute inset-0 flex flex-col items-center justify-center text-center p-6 opacity-70">
+              <svg class="w-16 h-16 text-indigo-400 mb-4 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg>
+              <p class="text-sm font-medium text-white/80">Belum ada video.</p>
+              <p class="text-xs text-white/50 mt-1">Klik tombol Upload di atas.</p>
+            </div>
+
+            <div id="loadingScreen" class="absolute inset-0 bg-black/85 flex flex-col items-center justify-center hidden z-20 backdrop-blur-sm">
+                <svg class="animate-spin h-14 w-14 text-indigo-500 mb-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                <span id="loadingText" class="text-sm font-medium animate-pulse text-indigo-300 tracking-wide">Memproses...</span>
+            </div>
+          </div>
+        </div>
+       
+        <div class="w-full md:w-7/12 p-6 overflow-y-auto bg-white/5 flex flex-col justify-start custom-scroll">
+          
+          <button id="btnTranscribe" onclick="fetchTranscription()" class="w-full bg-indigo-600/80 hover:bg-indigo-500 text-sm font-semibold py-3 px-4 rounded-xl transition shadow-[0_0_15px_rgba(79,70,229,0.3)] border border-indigo-400/50 flex justify-center items-center gap-2 mb-4">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"></path></svg>
+            1. Extract Audio & Text
+          </button>
+
+          <div class="mb-4">
+            <label class="text-white/80 text-xs font-semibold mb-2 flex justify-between items-end">
+              <span>📝 Editor CapCut-Style</span>
+              <span class="text-indigo-400 font-normal text-[10px]">Format: MM:SS:cs</span>
+            </label>
+            <textarea id="capcut_editor" oninput="parseEditorText()" class="w-full h-32 bg-black/60 border border-white/20 rounded-xl p-3 text-xs text-indigo-100 font-mono focus:border-indigo-500 outline-none resize-none shadow-inner leading-relaxed transition-all focus:bg-black/80 placeholder-white/30" placeholder="Klik Extract Audio di atas untuk memunculkan teks."></textarea>
+          </div>
+
+          <div class="mb-4 bg-black/40 border border-white/10 rounded-xl p-3 glass">
+            <div class="flex bg-gray-900 rounded-lg p-1 mb-3">
+              <button type="button" onclick="switchTab('gaya')" id="tab-gaya" class="tab-btn active flex-1 text-xs py-2 rounded-md transition-all text-center">Gaya (Basic)</button>
+              <button type="button" onclick="switchTab('template')" id="tab-template" class="tab-btn flex-1 text-xs py-2 rounded-md transition-all text-center flex items-center justify-center gap-1">Template <svg class="w-3 h-3 text-yellow-400" fill="currentColor" viewBox="0 0 20 20"><path d="M11 3a1 1 0 100 2h2.586l-6.293 6.293a1 1 0 101.414 1.414L15 6.414V9a1 1 0 102 0V4a1 1 0 00-1-1h-5z"></path></svg></button>
+            </div>
+            
+            <div id="panel-gaya" class="grid grid-cols-4 gap-2">
+              <div onclick="applyPreset(1, this)" class="preset-card active cursor-pointer bg-black/60 border border-white/20 rounded-lg p-2.5 text-center transition hover:border-indigo-400 flex items-center justify-center"><span class="text-xs font-bold text-white">Text</span></div>
+              <div onclick="applyPreset(2, this)" class="preset-card cursor-pointer bg-black border border-white/20 rounded-lg p-2 text-center transition hover:border-indigo-400"><span class="bg-black text-white px-1.5 py-0.5 rounded text-[11px] font-bold">Text</span></div>
+              <div onclick="applyPreset(3, this)" class="preset-card cursor-pointer bg-white/10 border border-white/20 rounded-lg p-2 text-center transition hover:border-indigo-400"><span class="bg-white text-black px-1.5 py-0.5 rounded text-[11px] font-bold">Text</span></div>
+              <div onclick="applyPreset(4, this)" class="preset-card cursor-pointer bg-white/10 border border-white/20 rounded-lg p-2 text-center transition hover:border-indigo-400"><span class="bg-yellow-400 text-black px-1.5 py-0.5 rounded text-[11px] font-bold">Text</span></div>
+              <div onclick="applyPreset(5, this)" class="preset-card cursor-pointer bg-white/10 border border-white/20 rounded-lg p-2 text-center transition hover:border-indigo-400"><span class="bg-purple-600 text-white px-1.5 py-0.5 rounded text-[11px] font-bold">Text</span></div>
+              <div onclick="applyPreset(6, this)" class="preset-card cursor-pointer bg-white/10 border border-white/20 rounded-lg p-2 text-center transition hover:border-indigo-400"><span class="bg-black text-green-400 border border-green-400/30 px-1.5 py-0.5 rounded text-[11px] font-bold">Text</span></div>
+              <div onclick="applyPreset(7, this)" class="preset-card cursor-pointer bg-black/60 border border-white/20 rounded-lg p-2.5 text-center transition hover:border-indigo-400"><span class="text-xs font-extrabold text-black tracking-wider" style="-webkit-text-stroke: 1px white;">Text</span></div>
+              <div onclick="applyPreset(8, this)" class="preset-card cursor-pointer bg-black/60 border border-white/20 rounded-lg p-2.5 text-center transition hover:border-indigo-400"><span class="text-xs font-extrabold text-pink-500 drop-shadow-[0_0_5px_rgba(236,72,153,0.8)]">Text</span></div>
+            </div>
+
+            <div id="panel-template" class="grid grid-cols-2 gap-2 hidden">
+              <div onclick="applyTemplate('tpl_1', this)" class="tpl-card cursor-pointer bg-black/80 border border-white/20 rounded-lg p-3 text-center transition hover:border-yellow-400">
+                <span class="text-white text-xs font-bold">THE <span class="text-yellow-400">QUICK</span> BROWN</span>
+              </div>
+              <div onclick="applyTemplate('tpl_2', this)" class="tpl-card cursor-pointer bg-black/80 border border-white/20 rounded-lg p-3 text-center transition hover:border-green-400">
+                <span class="text-white text-xs font-bold">THE QUICK <span class="text-green-400">BROWN</span></span>
+              </div>
+              <div onclick="applyTemplate('tpl_3', this)" class="tpl-card cursor-pointer bg-black/80 border border-white/20 rounded-lg p-3 text-center transition hover:border-purple-400">
+                <span class="text-white text-xs font-bold">THE <span class="text-purple-400">QUICK</span> BROWN</span>
+              </div>
+              <div onclick="applyTemplate('tpl_4', this)" class="tpl-card cursor-pointer bg-black/80 border border-white/20 rounded-lg p-3 text-center transition hover:border-blue-400">
+                <span class="text-white text-xs font-bold">POP <span class="text-blue-400 scale-110 inline-block drop-shadow-md">BOUNCE</span> STYLE</span>
+              </div>
+            </div>
+          </div>
+
+          <form id="editorForm" class="space-y-4">
+            <input type="hidden" id="is_template" value="false">
+            <input type="hidden" id="template_id" value="tpl_1">
+            <input type="hidden" id="border_style" value="1">
+            
+            <div class="grid grid-cols-2 gap-3">
+              <div class="relative">
+                <label class="text-white/60 text-[10px] uppercase tracking-wider mb-1 block">Font Family</label>
+                <input type="text" id="fontSearch" onfocus="showFontList()" oninput="filterFonts()" placeholder="Cari font..." class="w-full bg-black/60 border border-white/20 rounded-lg px-3 py-2 text-xs text-white outline-none glass focus:border-indigo-500">
+                <input type="hidden" id="font_name" value="Montserrat">
+                <div id="fontDropdown" class="hidden absolute left-0 right-0 top-14 bg-gray-950 border border-indigo-500/40 rounded-lg max-h-40 overflow-y-auto z-50 custom-scroll p-1 shadow-2xl"></div>
+              </div>
+              
+              <div class="relative">
+                <label class="text-white/60 text-[10px] uppercase tracking-wider mb-1 block">Animation Masuk</label>
+                <input type="text" id="animSearch" onfocus="showAnimList()" oninput="filterAnims()" placeholder="Cari animasi..." class="w-full bg-black/60 border border-white/20 rounded-lg px-3 py-2 text-xs text-white outline-none glass focus:border-indigo-500">
+                <input type="hidden" id="animation_type" value="pop">
+                <div id="animDropdown" class="hidden absolute left-0 right-0 top-14 bg-gray-950 border border-indigo-500/40 rounded-lg max-h-40 overflow-y-auto z-50 custom-scroll p-1 shadow-2xl"></div>
+              </div>
+            </div>
+
+            <div class="grid grid-cols-3 gap-2 p-2 rounded-xl glass border border-white/10">
+              <div class="flex items-center gap-2"><input type="color" id="primary_color" value="#FFFFFF" onchange="updateRealtimeStyle()" class="w-7 h-7 rounded cursor-pointer bg-transparent border-0 p-0"><label class="text-white/80 text-[10px]">Text</label></div>
+              <div class="flex items-center gap-2"><input type="color" id="outline_color" value="#000000" onchange="updateRealtimeStyle()" class="w-7 h-7 rounded cursor-pointer bg-transparent border-0 p-0"><label class="text-white/80 text-[10px]">Outline</label></div>
+              <div class="flex items-center gap-2"><input type="color" id="back_color" value="#000000" onchange="updateRealtimeStyle()" class="w-7 h-7 rounded cursor-pointer bg-transparent border-0 p-0"><label class="text-white/80 text-[10px]">Box Bg</label></div>
+            </div>
+
+            <div class="space-y-2 pt-1">
+              <div>
+                <div class="flex justify-between mb-1"><label class="text-white/60 text-[10px] uppercase tracking-wider">Font Size</label><span id="val_size" class="text-xs text-indigo-400 font-bold">75</span></div>
+                <input type="range" id="font_size" min="30" max="150" value="75" class="w-full" oninput="updateRealtimeStyle()">
+              </div>
+              <div class="grid grid-cols-2 gap-3">
+                <div>
+                  <div class="flex justify-between mb-1"><label class="text-white/60 text-[10px] uppercase tracking-wider">Outline</label><span id="val_outline" class="text-xs text-indigo-400 font-bold">3</span></div>
+                  <input type="range" id="outline_width" min="0" max="15" value="3" class="w-full" oninput="updateRealtimeStyle()">
+                </div>
+                <div>
+                  <div class="flex justify-between mb-1"><label class="text-white/60 text-[10px] uppercase tracking-wider">Shadow</label><span id="val_shadow" class="text-xs text-indigo-400 font-bold">0</span></div>
+                  <input type="range" id="shadow_width" min="0" max="20" value="0" class="w-full" oninput="updateRealtimeStyle()">
+                </div>
+              </div>
+            </div>
+
+            <button type="submit" class="w-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-bold py-3 mt-2 rounded-xl transition-all shadow-[0_0_20px_rgba(59,130,246,0.4)] border border-blue-400/50 flex justify-center items-center gap-2 text-sm">
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+              2. Generate Permanen (Render)
+            </button>
+            
+          </form>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // --- REALTIME PREVIEW ENGINE ---
+    let parsedSubs = [];
+    const video = document.getElementById('videoPlayer');
+    const overlay = document.getElementById('subtitleOverlay');
+
+    function timeToSec(str) {
+        const p = str.trim().split(':');
+        if(p.length === 3) return parseInt(p[0])*60 + parseInt(p[1]) + parseInt(p[2])/100;
+        return 0;
+    }
+
+    function parseEditorText() {
+        const text = document.getElementById('capcut_editor').value;
+        const blocks = text.split('\n\n');
+        parsedSubs = [];
+        blocks.forEach(block => {
+            const lines = block.trim().split('\n');
+            if (lines.length >= 2) {
+                const times = lines[0].split(' - ');
+                if (times.length === 2) {
+                    parsedSubs.push({
+                        start: timeToSec(times[0]), end: timeToSec(times[1]),
+                        text: lines.slice(1).join(' ').trim().toUpperCase()
+                    });
+                }
+            }
+        });
+        renderOverlay(); // Trigger seketika pas ngetik
+    }
+
+    function updateRealtimeStyle() {
+        const size = document.getElementById('font_size').value;
+        const font = document.getElementById('font_name').value;
+        const out = document.getElementById('outline_width').value;
+        const shad = document.getElementById('shadow_width').value;
+        const outC = document.getElementById('outline_color').value;
+        const bgC = document.getElementById('back_color').value;
+        const bStyle = document.getElementById('border_style').value; // 1 or 3
+
+        // Skala size CSS biar pas di preview web
+        overlay.style.fontSize = (size * 0.4) + 'px';
+        overlay.style.fontFamily = `"${font}", sans-serif`;
+        overlay.style.webkitTextStroke = `${out * 0.3}px ${outC}`;
+        overlay.style.textShadow = shad > 0 ? `2px 2px ${shad}px rgba(0,0,0,0.8)` : 'none';
+        
+        if(bStyle === "3") {
+            overlay.style.backgroundColor = bgC;
+            overlay.style.padding = '4px 10px';
+            overlay.style.borderRadius = '8px';
+        } else {
+            overlay.style.backgroundColor = 'transparent';
+            overlay.style.padding = '0';
+        }
+    }
+
+    function getActiveTemplateColor() {
+        const id = document.getElementById('template_id').value;
+        if(id === 'tpl_1') return '#FACC15'; // Kuning
+        if(id === 'tpl_2') return '#4ADE80'; // Hijau
+        if(id === 'tpl_3') return '#A855F7'; // Ungu
+        if(id === 'tpl_4') return '#60A5FA'; // Biru (Bounce)
+        return '#FACC15';
+    }
+
+    function renderOverlay() {
+        const ct = video.currentTime;
+        const sub = parsedSubs.find(s => ct >= s.start && ct <= s.end);
+        if (!sub) { overlay.innerHTML = ''; return; }
+
+        const isTpl = document.getElementById('is_template').value === 'true';
+        const primary = document.getElementById('primary_color').value;
+        updateRealtimeStyle();
+
+        if (isTpl) {
+            const words = sub.text.split(' ');
+            const duration = sub.end - sub.start;
+            const wordDur = duration / words.length;
+            const elapsed = ct - sub.start;
+            const activeIdx = Math.max(0, Math.min(words.length - 1, Math.floor(elapsed / wordDur)));
+            
+            const activeColor = getActiveTemplateColor();
+            
+            let html = '';
+            words.forEach((w, i) => {
+                if (i === activeIdx) {
+                    html += `<span class="word-span pop-active" style="color: ${activeColor};">${w}</span>`;
+                } else {
+                    html += `<span class="word-span" style="color: ${primary};">${w}</span>`;
+                }
+            });
+            overlay.innerHTML = html;
+        } else {
+            overlay.innerHTML = `<span class="word-span" style="color: ${primary};">${sub.text}</span>`;
+        }
+    }
+
+    video.addEventListener('timeupdate', renderOverlay);
+
+    // --- TAB LOGIC ---
+    function switchTab(tabName) {
+        document.getElementById('tab-gaya').classList.remove('active');
+        document.getElementById('tab-template').classList.remove('active');
+        document.getElementById('panel-gaya').classList.add('hidden');
+        document.getElementById('panel-template').classList.add('hidden');
+        
+        document.getElementById(`tab-${tabName}`).classList.add('active');
+        document.getElementById(`panel-${tabName}`).classList.remove('hidden');
+
+        if(tabName === 'gaya') {
+            document.getElementById('is_template').value = 'false';
+            document.getElementById('animSearch').disabled = false;
+        } else {
+            document.getElementById('is_template').value = 'true';
+            document.getElementById('animSearch').disabled = true; // Kalo template, animasinya dari highlight kata
+        }
+        renderOverlay(); // Update preview seketika
+    }
+
+    // --- GAYA & TEMPLATE PRESET LOGIC ---
+    function applyPreset(id, el) {
+      document.querySelectorAll('.preset-card, .tpl-card').forEach(c => c.classList.remove('active', 'border-yellow-400'));
+      el.classList.add('active');
+      const p = document.getElementById('primary_color'), o = document.getElementById('outline_color'), b = document.getElementById('back_color'), s = document.getElementById('border_style');
+      if(id===1) { p.value="#FFFFFF"; o.value="#000000"; b.value="#000000"; s.value="1"; }
+      else if(id===2) { p.value="#FFFFFF"; o.value="#000000"; b.value="#000000"; s.value="3"; }
+      else if(id===3) { p.value="#000000"; o.value="#FFFFFF"; b.value="#FFFFFF"; s.value="3"; }
+      else if(id===4) { p.value="#000000"; o.value="#000000"; b.value="#FACC15"; s.value="3"; }
+      else if(id===5) { p.value="#FFFFFF"; o.value="#000000"; b.value="#9333EA"; s.value="3"; }
+      else if(id===6) { p.value="#4ADE80"; o.value="#000000"; b.value="#000000"; s.value="3"; }
+      else if(id===7) { p.value="#000000"; o.value="#FFFFFF"; b.value="#000000"; s.value="1"; }
+      else if(id===8) { p.value="#EC4899"; o.value="#F472B6"; b.value="#000000"; s.value="1"; }
+      updateRealtimeStyle(); renderOverlay();
+    }
+
+    function applyTemplate(id, el) {
+      document.querySelectorAll('.preset-card, .tpl-card').forEach(c => { c.classList.remove('active'); c.style.borderColor = 'rgba(255,255,255,0.2)'; });
+      el.classList.add('active'); el.style.borderColor = '#FACC15';
+      
+      document.getElementById('template_id').value = id;
+      document.getElementById('primary_color').value = "#FFFFFF"; // Base color
+      document.getElementById('outline_color').value = "#000000";
+      document.getElementById('border_style').value = "1";
+      document.getElementById('shadow_width').value = "5"; // Agak tebal biar kebaca
+      document.getElementById('val_shadow').innerText = "5";
+      updateRealtimeStyle(); renderOverlay();
+    }
+
+    // --- SEARCHABLE FONTS & ANIMS (SAMA KAYAK SEBELUMNYA) ---
+    const FONTS = ["Montserrat", "Arial Black", "Impact", "Anton", "Bebas Neue", "Poppins", "Inter", "Geist", "Roboto"];
+    const ANIMATIONS = [{id:"pop",label:"Pop Up"}, {id:"bounce",label:"Bounce"}, {id:"fade",label:"Fade"}, {id:"zoom_in",label:"Zoom In"}, {id:"shake",label:"Shake"}, {id:"none",label:"None"}];
+    document.getElementById('fontSearch').value = "Montserrat"; document.getElementById('animSearch').value = "Pop Up";
+
+    function renderList(data, inputId, dropId, valId) {
+      const filter = document.getElementById(inputId).value.toLowerCase();
+      const filtered = data.filter(d => (d.label || d).toLowerCase().includes(filter));
+      const html = filtered.map(d => `<div onclick="selectItem('${inputId}','${dropId}','${valId}','${d.id||d}','${d.label||d}')" class="px-3 py-1.5 hover:bg-indigo-600/50 rounded cursor-pointer text-xs text-white transition">${d.label||d}</div>`).join('');
+      document.getElementById(dropId).innerHTML = html || '<div class="p-2 text-xs text-white/40">Not found</div>';
+    }
+    function showFontList() { document.getElementById('fontDropdown').classList.remove('hidden'); renderList(FONTS, 'fontSearch', 'fontDropdown', 'font_name'); }
+    function filterFonts() { renderList(FONTS, 'fontSearch', 'fontDropdown', 'font_name'); }
+    function showAnimList() { document.getElementById('animDropdown').classList.remove('hidden'); renderList(ANIMATIONS, 'animSearch', 'animDropdown', 'animation_type'); }
+    function filterAnims() { renderList(ANIMATIONS, 'animSearch', 'animDropdown', 'animation_type'); }
+    function selectItem(inId, drpId, valId, trueVal, label) {
+      document.getElementById(inId).value = label; document.getElementById(valId).value = trueVal;
+      document.getElementById(drpId).classList.add('hidden');
+      updateRealtimeStyle(); renderOverlay();
+    }
+    document.addEventListener('click', (e) => {
+      if (!e.target.closest('#fontSearch') && !e.target.closest('#fontDropdown')) document.getElementById('fontDropdown').classList.add('hidden');
+      if (!e.target.closest('#animSearch') && !e.target.closest('#animDropdown')) document.getElementById('animDropdown').classList.add('hidden');
+    });
+
+    // --- SLIDERS UPDATE ---
+    const updateVal = (id, valId) => { document.getElementById(id).addEventListener('input', function() { document.getElementById(valId).innerText = this.value; updateRealtimeStyle(); renderOverlay(); }); }
+    updateVal('font_size', 'val_size'); updateVal('outline_width', 'val_outline'); updateVal('shadow_width', 'val_shadow');
+
+    // --- UPLOAD / DELETE / TRANSCRIBE / GENERATE LOGIC ---
+    document.getElementById('videoInput').addEventListener('change', async function(e) {
+      const file = e.target.files[0]; if (!file) return;
+      const loading = document.getElementById('loadingScreen');
+      document.getElementById('loadingText').innerText = "Mengupload Video..."; loading.classList.remove('hidden');
+      const formData = new FormData(); formData.append('video', file);
+      try {
+        const res = await fetch('/upload', { method: 'POST', body: formData });
+        const data = await res.json();
+        if (data.status === 'success') {
+          document.getElementById('uploadPlaceholder').classList.add('hidden');
+          video.classList.remove('hidden'); video.src = data.video_url + '?t=' + new Date().getTime(); video.load();
+          document.getElementById('btnDeleteVideo').classList.remove('hidden');
+          document.getElementById('capcut_editor').value = ''; parsedSubs = []; renderOverlay();
+        } else alert(data.message);
+      } catch (err) { alert('Error jaringan'); } finally { loading.classList.add('hidden'); e.target.value = ''; }
+    });
+
+    async function deleteVideo() {
+      if (!confirm('Hapus video?')) return;
+      try {
+        const res = await fetch('/delete_video', { method: 'POST' }); const data = await res.json();
+        if (data.status === 'success') {
+          video.pause(); video.classList.add('hidden');
+          document.getElementById('uploadPlaceholder').classList.remove('hidden');
+          document.getElementById('btnDeleteVideo').classList.add('hidden');
+          document.getElementById('capcut_editor').value = ''; parsedSubs = []; renderOverlay();
+        }
+      } catch (err) {}
+    }
+
+    async function fetchTranscription() {
+      const loading = document.getElementById('loadingScreen'); document.getElementById('loadingText').innerText = "Mengekstrak Audio..."; loading.classList.remove('hidden');
+      try {
+        const res = await fetch('/transcribe', { method: 'POST' }); const data = await res.json();
+        if (data.status === 'success') {
+          document.getElementById('capcut_editor').value = data.capcut_text; parseEditorText();
+        } else alert(data.message);
+      } catch (err) {} finally { loading.classList.add('hidden'); }
+    }
+
+    document.getElementById('editorForm').addEventListener('submit', async function(e) {
+      e.preventDefault();
+      const text = document.getElementById('capcut_editor').value; if (!text.trim()) { alert('Teks kosong!'); return; }
+      const loading = document.getElementById('loadingScreen'); document.getElementById('loadingText').innerText = "Merender Video..."; loading.classList.remove('hidden'); video.pause();
+      const req = {
+        capcut_text: text,
+        styles: {
+          font_name: document.getElementById('font_name').value, font_size: document.getElementById('font_size').value,
+          primary_color: document.getElementById('primary_color').value, outline_color: document.getElementById('outline_color').value,
+          back_color: document.getElementById('back_color').value, border_style: document.getElementById('border_style').value,
+          outline_width: document.getElementById('outline_width').value, shadow_width: document.getElementById('shadow_width').value,
+          animation_type: document.getElementById('animation_type').value,
+          is_template: document.getElementById('is_template').value === 'true', template_id: document.getElementById('template_id').value
+        }
+      };
+      try {
+        const res = await fetch('/generate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(req) });
+        const data = await res.json();
+        if (data.status === 'success') {
+          // Matikan realtime overlay karena videonya udah ada subtitle bawaannya (burned in)
+          parsedSubs = []; overlay.innerHTML = '';
+          video.src = data.video_url + '?t=' + new Date().getTime(); video.load(); video.play();
+        } else alert(data.message);
+      } catch (err) {} finally { loading.classList.add('hidden'); }
+    });
+
+    // Background Canvas Visualizer Sederhana
+    const canvas = document.getElementById('visualizer'); const ctx = canvas.getContext('2d'); let time = 0;
+    function resize() { canvas.width = window.innerWidth; canvas.height = window.innerHeight; }
+    function draw() {
+      ctx.fillStyle = 'black'; ctx.fillRect(0,0,canvas.width,canvas.height);
+      ctx.beginPath();
+      for(let x=0; x<canvas.width; x++) {
+        let y = Math.sin(x*0.01 + time)*50 + canvas.height/2;
+        if(x===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+      }
+      ctx.strokeStyle = 'rgba(79, 70, 229, 0.2)'; ctx.lineWidth=2; ctx.stroke(); time+=0.02; requestAnimationFrame(draw);
+    }
+    window.addEventListener('resize', resize); resize(); draw();
+  </script>
+</body>
+</html>
